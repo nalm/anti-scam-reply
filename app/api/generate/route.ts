@@ -90,7 +90,7 @@ export async function POST(req: Request) {
 
     let responseText = "";
 
-    // 1. Google Gemini Key Detection (starts with AIzaSy)
+    // 1. Google Gemini Key (starts with AIzaSy)
     if (apiKey.startsWith("AIzaSy")) {
       const genAI = new GoogleGenerativeAI(apiKey);
       const geminiModels = [
@@ -122,7 +122,7 @@ export async function POST(req: Request) {
         throw geminiError || new Error("Gemini API 호출에 실패했습니다.");
       }
     } 
-    // 2. OpenAI Key Detection (starts with sk-proj- or standard sk- without ant)
+    // 2. OpenAI Key (starts with sk-proj- or standard sk- without ant)
     else if (apiKey.startsWith("sk-proj-") || (!apiKey.startsWith("sk-ant-") && apiKey.startsWith("sk-") && !apiKey.includes("ant"))) {
       const openai = new OpenAI({ apiKey });
       const completion = await openai.chat.completions.create({
@@ -144,12 +144,17 @@ export async function POST(req: Request) {
         apiKey: apiKey,
       });
 
+      // Exhaustive list of Claude model aliases and IDs
       const candidateModels = [
-        "claude-3-7-sonnet-20250219",
+        "claude-3-5-sonnet-latest",
+        "claude-3-5-haiku-latest",
+        "claude-3-7-sonnet-latest",
         "claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet-20240620",
         "claude-3-5-haiku-20241022",
+        "claude-3-7-sonnet-20250219",
+        "claude-3-opus-latest",
         "claude-3-opus-20240229",
-        "claude-3-sonnet-20240229",
       ];
 
       let lastError: any = null;
@@ -197,9 +202,18 @@ export async function POST(req: Request) {
         if (status === 400 && (msg.toLowerCase().includes("credit") || msg.toLowerCase().includes("balance"))) {
           return NextResponse.json(
             {
-              error: "Anthropic 계정의 크레딧 잔액이 부족합니다. Console에서 크레딧을 충전하거나 Gemini/OpenAI 키를 입력해주세요.",
+              error: "Anthropic 계정의 크레딧 잔액이 부족합니다. Anthropic Console에서 크레딧을 충전하거나, 상단 설정에서 무료 Gemini 키를 입력해주세요.",
             },
             { status: 400 }
+          );
+        }
+
+        if (status === 404 || msg.toLowerCase().includes("not_found")) {
+          return NextResponse.json(
+            {
+              error: "Anthropic 계정에 활성화된 Claude 모델이 없거나 결제(Credit) 등록이 필요합니다. Anthropic Console을 확인하시거나, 상단 설정에서 무료 Google Gemini 키(AIzaSy...)를 입력해주세요.",
+            },
+            { status: 404 }
           );
         }
 
