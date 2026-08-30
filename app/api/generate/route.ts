@@ -86,25 +86,68 @@ export async function POST(req: Request) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    // Try gemini-1.5-flash or gemini-2.5-flash / gemini-2.0-flash
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.85,
-      },
-      systemInstruction: SYSTEM_INSTRUCTION,
-    });
+    
+    // Model fallback list
+    const candidateModels = [
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash-latest",
+      "gemini-1.5-flash",
+      "gemini-1.5-pro",
+      "gemini-pro",
+    ];
 
-    const prompt = `[상대방의 최신 메시지]:\n"""\n${message.trim()}\n"""\n\n위 메시지에 대해 사기꾼의 시간을 낭비시키고 호기심을 유지하게 만드는 3가지 답변을 JSON으로 생성하세요.`;
+    const prompt = `${SYSTEM_INSTRUCTION}\n\n---\n[상대방의 최신 메시지]:\n"""\n${message.trim()}\n"""\n\n위 메시지에 대해 사기꾼의 시간을 낭비시키고 호기심을 유지하게 만드는 3가지 답변을 요구한 JSON 형식(배열)으로만 생성하세요:`;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+    let responseText = "";
+    let lastError: any = null;
+
+    for (const modelName of candidateModels) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          generationConfig: {
+            temperature: 0.85,
+          },
+        });
+
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+        if (text && text.trim()) {
+          responseText = text;
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Model ${modelName} failed, trying next model...`, err?.message || err);
+        lastError = err;
+      }
+    }
+
+    if (!responseText) {
+      throw lastError || new Error("사용 가능한 Gemini 모델을 찾지 못했습니다.");
+    }
 
     let parsedReplies;
     try {
-      // Clean up markdown block if present
-      const cleaned = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
+      // Clean up markdown code blocks if present
+      let cleaned = responseText.trim();
+      if (cleaned.startsWith("```json")) {
+        cleaned = cleaned.replace(/^```json/i, "");
+      } else if (cleaned.startsWith("```")) {
+        cleaned = cleaned.replace(/^```/i, "");
+      }
+      if (cleaned.endsWith("```")) {
+        cleaned = cleaned.slice(0, -3);
+      }
+      cleaned = cleaned.trim();
+
+      // Extract JSON array if surrounded by other text
+      const arrayStart = cleaned.indexOf("[");
+      const arrayEnd = cleaned.lastIndexOf("]");
+      if (arrayStart !== -1 && arrayEnd !== -1 && arrayEnd > arrayStart) {
+        cleaned = cleaned.substring(arrayStart, arrayEnd + 1);
+      }
+
       parsedReplies = JSON.parse(cleaned);
     } catch {
       console.error("Failed to parse JSON response:", responseText);
