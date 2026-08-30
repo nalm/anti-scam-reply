@@ -8,7 +8,7 @@ import { ApiKeyModal } from "@/components/ApiKeyModal";
 import { StrategyGuide } from "@/components/StrategyGuide";
 import { AlertTriangle, Sparkles, MessageSquareDashed } from "lucide-react";
 
-const STORAGE_KEY = "anti_scam_gemini_api_key";
+const STORAGE_KEY = "anti_scam_claude_api_key";
 
 export default function Home() {
   const [message, setMessage] = useState("");
@@ -94,14 +94,14 @@ export default function Home() {
         <div className="text-center space-y-2 py-3">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-pink-500/10 border border-purple-500/20 text-xs font-semibold text-purple-300 mb-1">
             <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-            시간 낭비 방어 솔루션
+            시간 낭비 방어 솔루션 (Claude 3.5 AI)
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
             사기꾼에겐 헛된 희망을, 내게는 여유를 🎣
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
             로맨스 스캠·코인 사기꾼의 메시지를 붙여넣으세요. 내 정보는 철저히 숨기고,
-            상대방의 에너지만 쪽쪽 빨아먹는 최적의 답변 3가지를 생성해 드립니다.
+            상대방의 에너지만 쪽쪽 빨아먹는 최적의 답변 3가지를 Claude가 생성해 드립니다.
           </p>
         </div>
 
@@ -160,7 +160,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-slate-800/60 py-6 text-center text-xs text-slate-500">
         <p>
-          안티그래비티 (Anti-Scam Reply) • 로맨스 스캠 & 투자 사기 방어 프로젝트
+          안티그래비티 (Anti-Scam Reply) • Powered by Anthropic Claude 3.5
         </p>
       </footer>
 

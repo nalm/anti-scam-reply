@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -25,10 +25,8 @@ const SYSTEM_INSTRUCTION = `
 - 절대 상대방의 링크 클릭이나 앱 설치, 송금 제안을 실제로 수락하지 마세요.
 - 상대방이 사기꾼이라는 것을 눈치챘다는 사실을 절대 직접적으로 티 내지 마세요.
 
-# 출력 지침
-입력된 상대방의 메시지를 분석하고, 위 5대 전략을 조합하여 사기꾼의 기운을 뺄 수 있는 서로 다른 스타일의 **답변 3가지**를 작성해주세요.
-
-반드시 다음 JSON 형식만 순수 JSON으로 반환하세요(마크다운 코드블록 없이 JSON만):
+# 출력 형식 지침
+반드시 아래 JSON 배열 형식으로만 응답하세요. 다른 설명이나 마크다운 코드블록을 붙이지 마세요:
 [
   {
     "id": 1,
@@ -71,65 +69,68 @@ export async function POST(req: Request) {
 
     const apiKey =
       customApiKey?.trim() ||
-      process.env.GEMINI_API_KEY ||
-      process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      process.env.ANTHROPIC_API_KEY ||
+      process.env.CLAUDE_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
         {
           error:
-            "Gemini API 키가 설정되지 않았습니다. 우측 상단 설정에서 API 키를 입력하거나 서버 환경변수를 등록해주세요.",
+            "Claude API 키가 설정되지 않았습니다. 우측 상단 설정에서 API 키(sk-ant-...)를 입력하거나 서버 환경변수를 등록해주세요.",
           isApiKeyMissing: true,
         },
         { status: 401 }
       );
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    
-    // Model fallback list
-    const candidateModels = [
-      "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash-latest",
-      "gemini-1.5-flash",
-      "gemini-1.5-pro",
-      "gemini-pro",
-    ];
+    const anthropic = new Anthropic({
+      apiKey: apiKey,
+    });
 
-    const prompt = `${SYSTEM_INSTRUCTION}\n\n---\n[상대방의 최신 메시지]:\n"""\n${message.trim()}\n"""\n\n위 메시지에 대해 사기꾼의 시간을 낭비시키고 호기심을 유지하게 만드는 3가지 답변을 요구한 JSON 형식(배열)으로만 생성하세요:`;
+    const candidateModels = [
+      "claude-3-5-haiku-20241022",
+      "claude-3-5-haiku-latest",
+      "claude-3-5-sonnet-20241022",
+      "claude-3-5-sonnet-latest",
+      "claude-3-haiku-20240307",
+    ];
 
     let responseText = "";
     let lastError: any = null;
 
     for (const modelName of candidateModels) {
       try {
-        const model = genAI.getGenerativeModel({
+        const response = await anthropic.messages.create({
           model: modelName,
-          generationConfig: {
-            temperature: 0.85,
-          },
+          max_tokens: 2000,
+          temperature: 0.85,
+          system: SYSTEM_INSTRUCTION,
+          messages: [
+            {
+              role: "user",
+              content: `[상대방의 최신 메시지]:\n"""\n${message.trim()}\n"""\n\n위 메시지에 대해 사기꾼의 시간을 낭비시키고 호기심을 유지하게 만드는 3가지 답변을 요구한 JSON 형식(배열)으로만 생성하세요:`,
+            },
+          ],
         });
 
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
-        if (text && text.trim()) {
-          responseText = text;
+        // Extract text
+        const firstBlock = response.content[0];
+        if (firstBlock && firstBlock.type === "text" && firstBlock.text) {
+          responseText = firstBlock.text;
           break;
         }
       } catch (err: any) {
-        console.warn(`Model ${modelName} failed, trying next model...`, err?.message || err);
+        console.warn(`Claude model ${modelName} failed, trying fallback:`, err?.message || err);
         lastError = err;
       }
     }
 
     if (!responseText) {
-      throw lastError || new Error("사용 가능한 Gemini 모델을 찾지 못했습니다.");
+      throw lastError || new Error("사용 가능한 Claude 모델을 호출하지 못했습니다.");
     }
 
     let parsedReplies;
     try {
-      // Clean up markdown code blocks if present
       let cleaned = responseText.trim();
       if (cleaned.startsWith("```json")) {
         cleaned = cleaned.replace(/^```json/i, "");
@@ -141,7 +142,6 @@ export async function POST(req: Request) {
       }
       cleaned = cleaned.trim();
 
-      // Extract JSON array if surrounded by other text
       const arrayStart = cleaned.indexOf("[");
       const arrayEnd = cleaned.lastIndexOf("]");
       if (arrayStart !== -1 && arrayEnd !== -1 && arrayEnd > arrayStart) {
@@ -161,7 +161,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("API Error:", error);
     const errorMessage =
-      error?.message || "답변을 생성하는 도중 오류가 발생했습니다.";
+      error?.message || "Claude 답변 생성 중 오류가 발생했습니다.";
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
