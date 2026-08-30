@@ -1,14 +1,18 @@
 "use client";
 
 import React from "react";
-import { ShieldAlert, Key, Sparkles } from "lucide-react";
+import { ShieldAlert, Key, Sparkles, Bot } from "lucide-react";
 
 interface HeaderProps {
   onOpenKeyModal: () => void;
-  hasCustomKey: boolean;
+  savedApiKey: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenKeyModal, hasCustomKey }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenKeyModal, savedApiKey }) => {
+  const isClaude = savedApiKey.startsWith("sk-ant");
+  const isGemini = savedApiKey.startsWith("AIzaSy");
+  const hasCustomKey = !!savedApiKey;
+
   return (
     <header className="border-b border-slate-800/80 bg-slate-950/60 backdrop-blur-md sticky top-0 z-40">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
@@ -23,7 +27,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenKeyModal, hasCustomKey }) 
               </h1>
               <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20">
                 <Sparkles className="w-3 h-3 text-purple-400" />
-                Claude 3.5 AI
+                Claude / Gemini AI
               </span>
             </div>
             <p className="text-xs text-slate-400 hidden sm:block">
@@ -43,9 +47,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenKeyModal, hasCustomKey }) 
           >
             <Key className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">
-              {hasCustomKey ? "Claude 키 적용됨" : "Claude API 키"}
+              {isClaude
+                ? "Claude 키 적용됨"
+                : isGemini
+                ? "Gemini 키 적용됨"
+                : hasCustomKey
+                ? "API 키 적용됨"
+                : "API 키 설정"}
             </span>
-            <span className="sm:hidden">API 키</span>
+            <span className="sm:hidden">
+              {hasCustomKey ? "키 등록됨" : "API 키"}
+            </span>
             {hasCustomKey && (
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             )}

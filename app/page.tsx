@@ -86,7 +86,7 @@ export default function Home() {
     <div className="min-h-screen flex flex-col bg-[#080d1a] text-slate-100">
       <Header
         onOpenKeyModal={() => setIsKeyModalOpen(true)}
-        hasCustomKey={!!savedApiKey}
+        savedApiKey={savedApiKey}
       />
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6">
