@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -72,6 +73,7 @@ export async function POST(req: Request) {
       customApiKey?.trim() ||
       process.env.ANTHROPIC_API_KEY ||
       process.env.CLAUDE_API_KEY ||
+      process.env.OPENAI_API_KEY ||
       process.env.GEMINI_API_KEY ||
       process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
@@ -88,7 +90,7 @@ export async function POST(req: Request) {
 
     let responseText = "";
 
-    // 1. If key starts with AIzaSy or similar -> Gemini fallback
+    // 1. Google Gemini Key Detection (starts with AIzaSy)
     if (apiKey.startsWith("AIzaSy")) {
       const genAI = new GoogleGenerativeAI(apiKey);
       const geminiModels = [
@@ -117,20 +119,37 @@ export async function POST(req: Request) {
         }
       }
       if (!responseText) {
-        throw geminiError || new Error("Gemini 호출 실패");
+        throw geminiError || new Error("Gemini API 호출에 실패했습니다.");
       }
-    } else {
-      // 2. Anthropic Claude call
+    } 
+    // 2. OpenAI Key Detection (starts with sk-proj- or standard sk- without ant)
+    else if (apiKey.startsWith("sk-proj-") || (!apiKey.startsWith("sk-ant-") && apiKey.startsWith("sk-") && !apiKey.includes("ant"))) {
+      const openai = new OpenAI({ apiKey });
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.85,
+        messages: [
+          { role: "system", content: SYSTEM_INSTRUCTION },
+          {
+            role: "user",
+            content: `[상대방의 최신 메시지]:\n"""\n${message.trim()}\n"""\n\n위 메시지에 대해 사기꾼의 시간을 낭비시키고 호기심을 유지하게 만드는 3가지 답변을 요구한 JSON 형식(배열)으로만 생성하세요:`,
+          },
+        ],
+      });
+      responseText = completion.choices[0]?.message?.content || "";
+    }
+    // 3. Anthropic Claude Key (sk-ant-...)
+    else {
       const anthropic = new Anthropic({
         apiKey: apiKey,
       });
 
       const candidateModels = [
-        "claude-3-5-haiku-20241022",
-        "claude-3-5-haiku-latest",
+        "claude-3-7-sonnet-20250219",
         "claude-3-5-sonnet-20241022",
-        "claude-3-5-sonnet-latest",
-        "claude-3-haiku-20240307",
+        "claude-3-5-haiku-20241022",
+        "claude-3-opus-20240229",
+        "claude-3-sonnet-20240229",
       ];
 
       let lastError: any = null;
@@ -162,7 +181,6 @@ export async function POST(req: Request) {
       }
 
       if (!responseText) {
-        // Detailed Anthropic Error handling
         const status = lastError?.status;
         const msg = lastError?.error?.message || lastError?.message || "";
 
@@ -176,10 +194,10 @@ export async function POST(req: Request) {
           );
         }
 
-        if (status === 400 && msg.toLowerCase().includes("credit")) {
+        if (status === 400 && (msg.toLowerCase().includes("credit") || msg.toLowerCase().includes("balance"))) {
           return NextResponse.json(
             {
-              error: "Anthropic 계정의 크레딧(Credit Balance)이 부족합니다. Anthropic Console에서 크레딧을 충전하거나 Gemini 키를 입력해주세요.",
+              error: "Anthropic 계정의 크레딧 잔액이 부족합니다. Console에서 크레딧을 충전하거나 Gemini/OpenAI 키를 입력해주세요.",
             },
             { status: 400 }
           );
