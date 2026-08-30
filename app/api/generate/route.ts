@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -70,65 +71,125 @@ export async function POST(req: Request) {
     const apiKey =
       customApiKey?.trim() ||
       process.env.ANTHROPIC_API_KEY ||
-      process.env.CLAUDE_API_KEY;
+      process.env.CLAUDE_API_KEY ||
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
         {
           error:
-            "Claude API 키가 설정되지 않았습니다. 우측 상단 설정에서 API 키(sk-ant-...)를 입력하거나 서버 환경변수를 등록해주세요.",
+            "API 키가 설정되지 않았습니다. 우측 상단 설정에서 API 키를 입력하거나 서버 환경변수를 등록해주세요.",
           isApiKeyMissing: true,
         },
         { status: 401 }
       );
     }
 
-    const anthropic = new Anthropic({
-      apiKey: apiKey,
-    });
-
-    const candidateModels = [
-      "claude-3-5-haiku-20241022",
-      "claude-3-5-haiku-latest",
-      "claude-3-5-sonnet-20241022",
-      "claude-3-5-sonnet-latest",
-      "claude-3-haiku-20240307",
-    ];
-
     let responseText = "";
-    let lastError: any = null;
 
-    for (const modelName of candidateModels) {
-      try {
-        const response = await anthropic.messages.create({
-          model: modelName,
-          max_tokens: 2000,
-          temperature: 0.85,
-          system: SYSTEM_INSTRUCTION,
-          messages: [
-            {
-              role: "user",
-              content: `[상대방의 최신 메시지]:\n"""\n${message.trim()}\n"""\n\n위 메시지에 대해 사기꾼의 시간을 낭비시키고 호기심을 유지하게 만드는 3가지 답변을 요구한 JSON 형식(배열)으로만 생성하세요:`,
-            },
-          ],
-        });
+    // 1. If key starts with AIzaSy or similar -> Gemini fallback
+    if (apiKey.startsWith("AIzaSy")) {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const geminiModels = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-pro",
+      ];
 
-        // Extract text
-        const firstBlock = response.content[0];
-        if (firstBlock && firstBlock.type === "text" && firstBlock.text) {
-          responseText = firstBlock.text;
-          break;
+      const prompt = `${SYSTEM_INSTRUCTION}\n\n---\n[상대방의 최신 메시지]:\n"""\n${message.trim()}\n"""\n\n위 메시지에 대해 사기꾼의 시간을 낭비시키고 호기심을 유지하게 만드는 3가지 답변을 요구한 JSON 형식(배열)으로만 생성하세요:`;
+
+      let geminiError: any = null;
+      for (const m of geminiModels) {
+        try {
+          const model = genAI.getGenerativeModel({ model: m });
+          const result = await model.generateContent(prompt);
+          const text = result.response.text();
+          if (text) {
+            responseText = text;
+            break;
+          }
+        } catch (e) {
+          geminiError = e;
         }
-      } catch (err: any) {
-        console.warn(`Claude model ${modelName} failed, trying fallback:`, err?.message || err);
-        lastError = err;
+      }
+      if (!responseText) {
+        throw geminiError || new Error("Gemini 호출 실패");
+      }
+    } else {
+      // 2. Anthropic Claude call
+      const anthropic = new Anthropic({
+        apiKey: apiKey,
+      });
+
+      const candidateModels = [
+        "claude-3-5-haiku-20241022",
+        "claude-3-5-haiku-latest",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet-latest",
+        "claude-3-haiku-20240307",
+      ];
+
+      let lastError: any = null;
+
+      for (const modelName of candidateModels) {
+        try {
+          const response = await anthropic.messages.create({
+            model: modelName,
+            max_tokens: 2000,
+            temperature: 0.85,
+            system: SYSTEM_INSTRUCTION,
+            messages: [
+              {
+                role: "user",
+                content: `[상대방의 최신 메시지]:\n"""\n${message.trim()}\n"""\n\n위 메시지에 대해 사기꾼의 시간을 낭비시키고 호기심을 유지하게 만드는 3가지 답변을 요구한 JSON 형식(배열)으로만 생성하세요:`,
+              },
+            ],
+          });
+
+          const firstBlock = response.content[0];
+          if (firstBlock && firstBlock.type === "text" && firstBlock.text) {
+            responseText = firstBlock.text;
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`Claude model ${modelName} attempt failed:`, err?.message || err);
+          lastError = err;
+        }
+      }
+
+      if (!responseText) {
+        // Detailed Anthropic Error handling
+        const status = lastError?.status;
+        const msg = lastError?.error?.message || lastError?.message || "";
+
+        if (status === 401 || msg.toLowerCase().includes("invalid x-api-key") || msg.toLowerCase().includes("authentication")) {
+          return NextResponse.json(
+            {
+              error: "Claude API 키가 올바르지 않습니다. Anthropic Console에서 올바른 API 키(sk-ant-...)를 확인해주세요.",
+              isApiKeyMissing: true,
+            },
+            { status: 401 }
+          );
+        }
+
+        if (status === 400 && msg.toLowerCase().includes("credit")) {
+          return NextResponse.json(
+            {
+              error: "Anthropic 계정의 크레딧(Credit Balance)이 부족합니다. Anthropic Console에서 크레딧을 충전하거나 Gemini 키를 입력해주세요.",
+            },
+            { status: 400 }
+          );
+        }
+
+        throw new Error(msg || "사용 가능한 Claude 모델을 호출하지 못했습니다.");
       }
     }
 
-    if (!responseText) {
-      throw lastError || new Error("사용 가능한 Claude 모델을 호출하지 못했습니다.");
-    }
-
+    // JSON parsing
     let parsedReplies;
     try {
       let cleaned = responseText.trim();
@@ -159,9 +220,11 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ replies: parsedReplies });
   } catch (error: any) {
-    console.error("API Error:", error);
+    console.error("API Detailed Error:", error);
     const errorMessage =
-      error?.message || "Claude 답변 생성 중 오류가 발생했습니다.";
+      error?.error?.message ||
+      error?.message ||
+      "답변을 생성하는 도중 오류가 발생했습니다.";
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
